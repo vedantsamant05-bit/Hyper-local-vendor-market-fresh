@@ -1,0 +1,59 @@
+[
+  {
+    "mobile": "9876543210",
+    "password": "fresh123",
+    "profile": {
+      "id": "meera",
+      "owner": "Meera Sharma",
+      "stall": "Meera's Fresh Harvest",
+      "mobile": "9876543210",
+      "whatsapp": "919876543210",
+      "email": "meera@example.com",
+      "locality": "Bandra (West)",
+      "pincode": "400050",
+      "address": "Bandra West, Mumbai",
+      "radius": "2 km",
+      "language": "English",
+      "upi": "meera@okaxis",
+      "delivery_mode": "Self delivery"
+    }
+  },
+  {
+    "mobile": "9812345678",
+    "password": "organic123",
+    "profile": {
+      "id": "greenleaf",
+      "owner": "Ravi Kumar",
+      "stall": "GreenLeaf Organics",
+      "mobile": "9812345678",
+      "whatsapp": "919812345678",
+      "email": "ravi@example.com",
+      "locality": "Andheri (West)",
+      "pincode": "400053",
+      "address": "Andheri West Market, Mumbai",
+      "radius": "3 km",
+      "language": "English",
+      "upi": "ravi@okaxis",
+      "delivery_mode": "Porter / delivery partner"
+    }
+  },
+  {
+    "mobile": "9900112233",
+    "password": "amma123",
+    "profile": {
+      "id": "amma",
+      "owner": "Lakshmi Amma",
+      "stall": "Amma's Veggie Cart",
+      "mobile": "9900112233",
+      "whatsapp": "919900112233",
+      "email": "amma@example.com",
+      "locality": "Colaba",
+      "pincode": "400005",
+      "address": "Colaba Causeway, Mumbai",
+      "radius": "2 km",
+      "language": "English",
+      "upi": "amma@okaxis",
+      "delivery_mode": "Self delivery"
+    }
+  }
+]

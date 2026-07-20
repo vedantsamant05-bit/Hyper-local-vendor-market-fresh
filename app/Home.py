@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
-from urllib.parse import quote
+import json
+from urllib.parse import quote, unquote
+from pathlib import Path
 from components.data import FACTS, PRODUCTS, VENDOR, VENDORS, LOCATIONS, VENDOR_TRANSLATIONS
 from components.ui_helpers import inject_styles, inr
 from components.voice_assistant import render_voice_assistant
@@ -8,6 +10,88 @@ import base64
 
 st.set_page_config(page_title="FreshKart Local", page_icon="🥕", layout="wide")
 inject_styles()
+
+BASE_DIR = Path(__file__).resolve().parent
+VENDOR_USERS_FILE = BASE_DIR / "vendor_users.json"
+VENDOR_COOKIE_NAME = "freshkart_vendor_user"
+
+def normalize_mobile(value):
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) == 12 and digits.startswith("91"):
+        return digits[2:]
+    return digits
+
+def load_vendor_accounts():
+    try:
+        with VENDOR_USERS_FILE.open("r", encoding="utf-8") as f:
+            accounts = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+    return [account for account in accounts if account.get("profile")]
+
+def get_cookie_vendor_account():
+    context = getattr(st, "context", None)
+    if not context:
+        return None
+    try:
+        raw_cookie = context.cookies.get(VENDOR_COOKIE_NAME)
+    except Exception:
+        return None
+    if not raw_cookie or not isinstance(raw_cookie, str):
+        return None
+    try:
+        return json.loads(unquote(raw_cookie))
+    except json.JSONDecodeError:
+        return None
+
+def set_vendor_cookie(account):
+    payload = json.dumps(account, separators=(",", ":"))
+    encoded_payload = base64.b64encode(payload.encode("utf-8")).decode("ascii")
+    cookie_name = json.dumps(VENDOR_COOKIE_NAME)
+    st.iframe(
+        f"""
+        <script>
+        const encodedPayload = "{encoded_payload}";
+        const bytes = Uint8Array.from(atob(encodedPayload), c => c.charCodeAt(0));
+        const payload = new TextDecoder().decode(bytes);
+        const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+        document.cookie = {cookie_name} + "=" + encodeURIComponent(payload) + "; expires=" + expires + "; path=/; SameSite=Lax";
+        </script>
+        """,
+        height=0,
+    )
+
+def profile_to_vendor_listing(profile):
+    loc_id = next((loc["id"] for loc in LOCATIONS if loc["name"] == profile.get("locality")), "bandra")
+    return {
+        "id": profile["id"],
+        "name": profile["stall"],
+        "owner": profile["owner"],
+        "phone": profile["whatsapp"],
+        "area": profile["locality"],
+        "home_zone": loc_id,
+        "zones": [loc_id],
+        "zone_deltas": {loc_id: 0},
+        "zone_time": {loc_id: "15 min"},
+        "rating": 5.0,
+        "delivery": "15 min",
+        "tagline": "Freshly onboarded local stall",
+        "accent": "#10b981",
+        "delta": 0,
+        "photo": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800",
+    }
+
+def open_vendor_account(account):
+    profile = dict(account["profile"])
+    st.session_state.role = "vendor"
+    st.session_state.vendor_profile = profile
+    if "custom_vendors_profiles" not in st.session_state:
+        st.session_state.custom_vendors_profiles = {}
+    st.session_state.custom_vendors_profiles[normalize_mobile(profile.get("mobile"))] = profile
+    if not any(v["id"] == profile["id"] for v in st.session_state.vendors):
+        st.session_state.vendors = st.session_state.vendors + [profile_to_vendor_listing(profile)]
+    if profile.get("language") in ["English", "Hindi", "Marathi"]:
+        st.session_state.cockpit_lang = profile["language"]
 
 # Define image search helper
 def get_vegetable_image(name):
@@ -145,38 +229,69 @@ if not st.session_state.role:
                 st.error("Please enter your name and a valid mobile number.")
     with b:
         st.markdown('<div class="login-card"><div style="font-size:42px">🏪</div><h2>Run your stall</h2><p class="muted">Manage stock, prices, orders, and your daily pulse.</p></div>',unsafe_allow_html=True)
-        with st.form("vendor_login"):
-            phone=st.text_input("Vendor mobile",placeholder="9876543210",key="vendor_phone"); pin=st.text_input("Demo PIN",type="password",placeholder="1234")
-            if st.form_submit_button("Open vendor cockpit →",type="primary",use_container_width=True):
-                clean_phone = phone.strip().replace(" ", "")
-                if len(clean_phone) >= 10 and pin == "1234":
-                    st.session_state.role = "vendor"
-                    if clean_phone in ("9876543210", "+919876543210"):
-                        if not st.session_state.vendor_profile or st.session_state.vendor_profile.get("mobile") != "9876543210":
-                            st.session_state.vendor_profile = {
-                                "id": "meera",
-                                "owner": "Meera Sharma",
-                                "stall": "Meera's Fresh Harvest",
-                                "mobile": "9876543210",
-                                "whatsapp": "919876543210",
-                                "locality": "Bandra",
-                                "pincode": "400050",
-                                "address": "Bandra West, Mumbai",
-                                "radius": "2 km",
-                                "language": "English",
-                                "upi": "meera@okaxis",
-                                "delivery_mode": "Self delivery"
-                            }
+        vendor_mode = st.radio(
+            "Vendor access",
+            ["Already have an account", "New user signin"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        saved_cookie_account = get_cookie_vendor_account()
+        vendor_accounts = load_vendor_accounts()
+        if saved_cookie_account and saved_cookie_account.get("profile"):
+            saved_mobile = normalize_mobile(saved_cookie_account.get("mobile"))
+            if not any(normalize_mobile(account.get("mobile")) == saved_mobile for account in vendor_accounts):
+                vendor_accounts.append(saved_cookie_account)
+
+        if vendor_mode == "Already have an account":
+            with st.form("vendor_existing_login"):
+                account_labels = [
+                    f"{account['profile']['stall']} · {account['mobile']}"
+                    for account in vendor_accounts
+                ]
+                selected_label = st.selectbox("Choose account", account_labels)
+                password = st.text_input("Password", type="password", placeholder="Enter password")
+                if st.form_submit_button("Open vendor cockpit →", type="primary", use_container_width=True):
+                    selected_account = vendor_accounts[account_labels.index(selected_label)] if account_labels else None
+                    if selected_account and password == selected_account.get("password"):
+                        open_vendor_account(selected_account)
+                        st.rerun()
+                    st.error("Please choose a valid account and enter the correct password.")
+            st.caption("Demo passwords: fresh123, organic123, amma123. Accounts are loaded from app/vendor_users.json.")
+        else:
+            with st.form("vendor_new_user"):
+                owner_name = st.text_input("Owner name", placeholder="e.g. Meera Sharma")
+                stall_name = st.text_input("Stall / shop name", placeholder="e.g. Meera's Fresh Basket")
+                phone = st.text_input("Vendor mobile", placeholder="10-digit number", key="new_vendor_phone")
+                password = st.text_input("Create password", type="password", placeholder="Minimum 4 characters")
+                if st.form_submit_button("Create account →", type="primary", use_container_width=True):
+                    clean_phone = normalize_mobile(phone)
+                    if not owner_name or not stall_name or len(clean_phone) != 10 or len(password) < 4:
+                        st.error("Please enter owner name, stall name, a 10-digit mobile number, and a password.")
                     else:
-                        if "custom_vendors_profiles" not in st.session_state:
-                            st.session_state.custom_vendors_profiles = {}
-                        if clean_phone in st.session_state.custom_vendors_profiles:
-                            st.session_state.vendor_profile = st.session_state.custom_vendors_profiles[clean_phone]
-                        else:
-                            st.session_state.vendor_profile = None
-                            st.session_state.temp_vendor_phone = clean_phone
+                        profile = {
+                            "id": f"cookie_vendor_{clean_phone}",
+                            "owner": owner_name,
+                            "stall": stall_name,
+                            "mobile": clean_phone,
+                            "whatsapp": f"91{clean_phone}",
+                            "email": "",
+                            "locality": "Bandra (West)",
+                            "pincode": "400050",
+                            "address": "Bandra West, Mumbai",
+                            "radius": "2 km",
+                            "language": "English",
+                            "upi": f"{clean_phone}@upi",
+                            "delivery_mode": "Self delivery",
+                        }
+                        new_account = {"mobile": clean_phone, "password": password, "profile": profile}
+                        set_vendor_cookie(new_account)
+                        open_vendor_account(new_account)
+                        st.session_state.new_vendor_cookie_saved = True
+                        st.success("Account created and saved in your browser cookie.")
+            if st.session_state.get("new_vendor_cookie_saved"):
+                if st.button("Open vendor cockpit →", type="primary", use_container_width=True):
+                    st.session_state.new_vendor_cookie_saved = False
                     st.rerun()
-                st.error("Demo access: Enter any 10-digit mobile number with PIN '1234'")
     st.stop()
 
 if st.session_state.role == "vendor":
