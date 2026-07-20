@@ -238,7 +238,7 @@ if not st.session_state.role:
     st.markdown('<div class="section-title">A better way to fill your basket</div>', unsafe_allow_html=True)
     for col, (icon, title, text) in zip(st.columns(3), [("🔎", "Compare, don’t guess", "See real vendor prices before you commit."), ("💬", "One-tap vendor chat", "Ask about freshness or availability on WhatsApp."), ("🌱", "Neighbourhood impact", "Your purchase supports local food businesses.")]):
         col.markdown(f'<div class="feature-card"><div class="icon">{icon}</div><h3>{title}</h3><p>{text}</p></div>', unsafe_allow_html=True)
-    st.markdown('<div class="social-proof"><b>“I found fresher vegetables at a better price, two streets away.”</b><br><span>— Ananya, FreshKart Local customer</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="social-proof"><b>“I found fresher vegetables at a better price, two streets away.”</b><br><span>— Laviniya, FreshKart Local customer</span></div>', unsafe_allow_html=True)
     
     st.markdown('<div class="section-title">Fresh in your neighbourhood today 🥬</div>', unsafe_allow_html=True)
     gallery_cols = st.columns(6)
@@ -258,7 +258,7 @@ if not st.session_state.role:
     with a:
         st.markdown('<div class="login-card"><div style="font-size:42px">🛍️</div><h2>Shop fresh</h2><p class="muted">Browse 4 local vendors and build a beautiful basket.</p></div>',unsafe_allow_html=True)
         with st.form("customer_login"):
-            name=st.text_input("Your name",placeholder="e.g. Ananya"); phone=st.text_input("Mobile number",placeholder="10-digit number")
+            name=st.text_input("Your name",placeholder="e.g. Laviniya"); phone=st.text_input("Mobile number",placeholder="10-digit number")
             _loc_labels=[f"{l['emoji']} {l['name']}" for l in LOCATIONS]
             loc_choice=st.selectbox("📍 Your delivery location",_loc_labels,help="Vendors and prices update based on your zone.")
             if st.form_submit_button("Enter marketplace →",type="primary",use_container_width=True):
