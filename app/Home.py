@@ -58,7 +58,7 @@ def set_vendor_cookie(account):
         document.cookie = {cookie_name} + "=" + encodeURIComponent(payload) + "; expires=" + expires + "; path=/; SameSite=Lax";
         </script>
         """,
-        height=0,
+        height=1,
     )
 
 def profile_to_vendor_listing(profile):
@@ -172,10 +172,49 @@ def selected_vendor():
     if not avail: return st.session_state.vendors[0]
     match = next((v for v in avail if v["id"] == st.session_state.selected_vendor), None)
     return match if match else avail[0]
+def normalize_whatsapp(value):
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) == 10:
+        return "91" + digits
+    elif len(digits) == 12 and digits.startswith("91"):
+        return digits
+    return digits or "919876543210"
+
 def whatsapp_url(vendor, product=None, price=None):
+    phone = normalize_whatsapp(vendor.get("phone") or vendor.get("whatsapp"))
     text = f"Hi {vendor['owner']}, I found {vendor['name']} on FreshKart Local."
     if product: text += f" Is {product['name']} available today at {inr(price)}?"
-    return f"https://wa.me/{vendor['phone']}?text={quote(text)}"
+    return f"https://wa.me/{phone}?text={quote(text)}"
+
+def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment):
+    phone = normalize_whatsapp(vendor.get("phone") or vendor.get("whatsapp"))
+    owner_name = vendor.get("owner", "Vendor")
+    stall_name = vendor.get("name") or vendor.get("stall") or "Local Stall"
+    
+    lines = [
+        f"🛒 *FreshKart Local - New Order Alert (#{order_id})*",
+        f"📍 *Stall:* {stall_name} (Owner: {owner_name})",
+        f"⏰ *Slot:* {slot} | 💳 *Payment:* {payment}",
+        "",
+        "🥬 *Vegetable Order List & Quantities:*",
+    ]
+    
+    subtotal_total = 0
+    for item in items_for_vendor:
+        p_name = item['product']['name']
+        p_unit = item['product'].get('unit', 'unit')
+        qty = item['qty']
+        price = item['price']
+        subtotal = qty * price
+        subtotal_total += subtotal
+        lines.append(f"  • {p_name}: {qty} x {p_unit} ({inr(price)} each) = {inr(subtotal)}")
+    
+    lines.append("")
+    lines.append(f"💰 *Vendor Subtotal:* {inr(subtotal_total)}")
+    lines.append("Please prepare these fresh vegetables for fulfilment. Thank you!")
+    
+    msg_text = "\n".join(lines)
+    return f"https://wa.me/{phone}?text={quote(msg_text)}", msg_text
 def add_item(product):
     key = f"{selected_vendor()['id']}::{product['name']}"
     st.session_state.cart[key] = st.session_state.cart.get(key, 0) + 1
@@ -791,9 +830,71 @@ elif nav == "My cart":
     if items:
         st.markdown(f'<div class="order-box"><b>Total</b><span style="float:right;font-size:1.35rem;font-weight:800">{inr(cart_total())}</span><br><span class="muted">Your order is grouped by vendor for fresh fulfilment.</span></div>',unsafe_allow_html=True)
         slot=st.selectbox("Delivery slot",["9–10 AM","10–11 AM","6–7 PM","7–8 PM"]); payment=st.radio("Payment",["UPI","Cash on delivery"],horizontal=True)
-        if st.button("Place demo order",type="primary",use_container_width=True): st.session_state.orders.append({"id":f"FK{1001+len(st.session_state.orders)}","total":cart_total(),"slot":slot,"payment":payment,"status":"Confirmed"});st.session_state.cart={};st.success("Order created! Your selected vendors will receive their WhatsApp order alert.")
+        if st.button("Place demo order",type="primary",use_container_width=True):
+            order_id = f"FK{1001+len(st.session_state.orders)}"
+            vendor_groups = {}
+            for it in items:
+                v_id = it["vendor"]["id"]
+                if v_id not in vendor_groups:
+                    vendor_groups[v_id] = {"vendor": it["vendor"], "items": []}
+                vendor_groups[v_id]["items"].append(it)
+            
+            vendor_breakdown = []
+            auto_script_links = []
+            for v_id, group in vendor_groups.items():
+                v = group["vendor"]
+                v_items = group["items"]
+                wa_url, wa_msg = vendor_order_whatsapp_url(v, order_id, v_items, slot, payment)
+                vendor_breakdown.append({
+                    "vendor_id": v_id,
+                    "vendor_name": v["name"],
+                    "vendor_owner": v["owner"],
+                    "vendor_phone": normalize_whatsapp(v.get("phone") or v.get("whatsapp")),
+                    "items": [{"name": i["product"]["name"], "unit": i["product"].get("unit", ""), "qty": i["qty"], "price": i["price"]} for i in v_items],
+                    "subtotal": sum(i["qty"] * i["price"] for i in v_items),
+                    "whatsapp_url": wa_url,
+                    "whatsapp_msg": wa_msg
+                })
+                auto_script_links.append(wa_url)
+            
+            new_order = {
+                "id": order_id,
+                "total": cart_total(),
+                "slot": slot,
+                "payment": payment,
+                "status": "Confirmed",
+                "vendor_breakdown": vendor_breakdown
+            }
+            st.session_state.orders.append(new_order)
+            st.session_state.last_order_placed = new_order
+            st.session_state.cart = {}
+            st.rerun()
+
+    if "last_order_placed" in st.session_state and st.session_state.last_order_placed:
+        last = st.session_state.last_order_placed
+        st.success(f"🎉 Order {last['id']} created successfully! Vegetable lists and quantities generated for vendors.")
+        st.markdown("### 📲 Dispatch Vegetable List & Quantity to Vendors via WhatsApp")
+        for vb in last.get("vendor_breakdown", []):
+            with st.container():
+                st.markdown(f"**🏪 {vb['vendor_name']}** ({vb['vendor_owner']}) — *WhatsApp:* `{vb['vendor_phone']}`")
+                for itm in vb["items"]:
+                    st.markdown(f"  - {itm['name']}: **{itm['qty']} × {itm['unit']}** @ {inr(itm['price'])} = **{inr(itm['qty']*itm['price'])}**")
+                st.link_button(f"📲 Send Vegetable List to {vb['vendor_name']} ({vb['vendor_phone']})", vb["whatsapp_url"], use_container_width=True)
+                st.markdown("---")
+        if st.button("Close Order Dispatch Summary"):
+            del st.session_state["last_order_placed"]
+            st.rerun()
 
 else:
     st.title("Your orders 📦")
     if not st.session_state.orders: st.info("No orders yet — your neighbourhood harvest is waiting.")
-    for order in reversed(st.session_state.orders): st.markdown(f'<div class="order-box"><b>{order["id"]}</b><span style="float:right">{order["status"]}</span><br><span class="muted">{order["slot"]} · {order["payment"]}</span><br><b>{inr(order["total"])}</b></div>',unsafe_allow_html=True)
+    for order in reversed(st.session_state.orders):
+        st.markdown(f'<div class="order-box"><b>{order["id"]}</b><span style="float:right">{order["status"]}</span><br><span class="muted">{order["slot"]} · {order["payment"]}</span><br><b>{inr(order["total"])}</b></div>',unsafe_allow_html=True)
+        if "vendor_breakdown" in order and order["vendor_breakdown"]:
+            with st.expander(f"🥬 Vegetable List & Quantity Breakdown ({len(order['vendor_breakdown'])} Vendor{'s' if len(order['vendor_breakdown'])>1 else ''})"):
+                for vb in order["vendor_breakdown"]:
+                    st.markdown(f"**🏪 {vb['vendor_name']}** ({vb['vendor_owner']}) — 📱 `{vb['vendor_phone']}`")
+                    for itm in vb["items"]:
+                        st.write(f"  • {itm['name']}: {itm['qty']} × {itm['unit']} ({inr(itm['price'])}) = {inr(itm['qty']*itm['price'])}")
+                    st.link_button(f"📲 Send Vegetable List on WhatsApp ({vb['vendor_phone']})", vb["whatsapp_url"], use_container_width=True)
+                    st.markdown("---")
