@@ -321,6 +321,7 @@ if not st.session_state.role:
                             "language": "English",
                             "upi": f"{clean_phone}@upi",
                             "delivery_mode": "Self delivery",
+                            "is_new": True,
                         }
                         new_account = {"mobile": clean_phone, "password": password, "profile": profile}
                         set_vendor_cookie(new_account)
@@ -409,7 +410,8 @@ if st.session_state.role == "vendor":
                         "radius": delivery_radius, 
                         "language": language, 
                         "upi": upi_id, 
-                        "delivery_mode": delivery_mode
+                        "delivery_mode": delivery_mode,
+                        "is_new": True,
                     }
                     
                     new_v = {
@@ -562,51 +564,105 @@ if st.session_state.role == "vendor":
                         st.session_state.vendor_photos[vid].remove(img_url)
                         st.success("Stall photo deleted successfully!")
                         st.rerun()
-    stats=[("📩",tr["new_orders"],"12"),("⚡",tr["fulfillment"],"94%"),("💸",tr["revenue"],"₹2,840"),("🥬",tr["low_stock"],tr["low_stock_val"])]
-    for col,(icon,label,value) in zip(st.columns(4),stats): col.markdown(f'<div class="stat-card">{icon} <span class="muted">{label}</span><div class="stat-value">{value}</div></div>',unsafe_allow_html=True)
+    cur_vid = profile.get("id", "")
+    is_new_account = (
+        profile.get("is_new", False) or
+        cur_vid.startswith("custom_vendor_") or
+        cur_vid.startswith("cookie_vendor_") or
+        cur_vid not in ["meera", "greenleaf", "amma"]
+    )
+    
+    # Calculate real orders and revenue for this vendor from session state orders
+    v_orders = []
+    v_revenue = 0
+    for ord_obj in st.session_state.orders:
+        for vb in ord_obj.get("vendor_breakdown", []):
+            if vb.get("vendor_id") == cur_vid or vb.get("vendor_phone") == profile.get("whatsapp"):
+                v_orders.append((ord_obj, vb))
+                v_revenue += vb.get("subtotal", 0)
+
+    real_orders_cnt = len(v_orders)
+
+    if is_new_account:
+        stats = [
+            ("📩", tr["new_orders"], str(real_orders_cnt)),
+            ("⚡", tr["fulfillment"], "0%" if real_orders_cnt == 0 else "100%"),
+            ("💸", tr["revenue"], inr(v_revenue)),
+            ("🥬", tr["low_stock"], "0")
+        ]
+    else:
+        stats = [("📩", tr["new_orders"], "12"), ("⚡", tr["fulfillment"], "94%"), ("💸", tr["revenue"], "₹2,840"), ("🥬", tr["low_stock"], tr["low_stock_val"])]
+
+    for col, (icon, label, value) in zip(st.columns(4), stats):
+        col.markdown(f'<div class="stat-card">{icon} <span class="muted">{label}</span><div class="stat-value">{value}</div></div>', unsafe_allow_html=True)
+
     overview, past = st.tabs([tr["insights_tab"], tr["history_tab"]])
     with overview:
         st.markdown(f"### {tr['net_profit_tracker']}")
         period = st.radio(tr["view_perf_by"], [tr["Day"], tr["Week"], tr["Month"]], horizontal=True)
-        # Map localized keys back to standard keys for dataframe retrieval
         std_period = "Day"
         if period == tr["Week"]: std_period = "Week"
         elif period == tr["Month"]: std_period = "Month"
         
-        profit_data = {
-            "Day": pd.DataFrame({"Period": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "Net profit": [420, 610, -95, 780, 640, 920, 540]}),
-            "Week": pd.DataFrame({"Period": ["Week 1", "Week 2", "Week 3", "Week 4"], "Net profit": [2850, 3440, 2310, 4210]}),
-            "Month": pd.DataFrame({"Period": ["Feb", "Mar", "Apr", "May", "Jun", "Jul"], "Net profit": [9680, 11240, 10410, 12680, 13850, 15420]}),
-        }
-        frame = profit_data[std_period].set_index("Period")
-        net_profit = int(frame["Net profit"].sum())
-        profit_col, sales_col, costs_col = st.columns(3)
-        profit_col.metric(f"{period}{tr['net_profit_label']}", inr(net_profit), f"+12.4% vs last {std_period.lower()}")
-        sales_col.metric(tr["sales_collected"], inr(int(net_profit * 2.58)), "42 orders")
-        costs_col.metric(tr["costs_fee"], inr(int(net_profit * 1.58)), tr["p_fee_included"])
-        st.caption(tr["profit_caption"])
-        st.line_chart(frame, color="#159c65", height=300)
-        if (frame["Net profit"] < 0).any():
-            loss_period = frame[frame["Net profit"] < 0].index[0]
-            loss_val = inr(abs(int(frame.loc[loss_period, 'Net profit'])))
-            st.warning(f"{loss_period} {tr['loss_warning'].format(loss=loss_val)}")
+        if is_new_account:
+            profit_col, sales_col, costs_col = st.columns(3)
+            profit_col.metric(f"{period} {tr['net_profit_label']}", inr(v_revenue * 0.4), "0% vs last period")
+            sales_col.metric(tr["sales_collected"], inr(v_revenue), f"{real_orders_cnt} order(s)")
+            costs_col.metric(tr["costs_fee"], inr(v_revenue * 0.1), tr["p_fee_included"])
+            st.caption("New account initialized: Stats start at zero and update dynamically with real orders.")
+            st.info("📊 No graph data for new account. Analytics charts are hidden until sales history accumulates.")
         else:
-            profit_val = inr(int(frame['Net profit'].max()))
-            st.success(tr["profit_success"].format(period=period.lower(), profit=profit_val))
+            profit_data = {
+                "Day": pd.DataFrame({"Period": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], "Net profit": [420, 610, -95, 780, 640, 920, 540]}),
+                "Week": pd.DataFrame({"Period": ["Week 1", "Week 2", "Week 3", "Week 4"], "Net profit": [2850, 3440, 2310, 4210]}),
+                "Month": pd.DataFrame({"Period": ["Feb", "Mar", "Apr", "May", "Jun", "Jul"], "Net profit": [9680, 11240, 10410, 12680, 13850, 15420]}),
+            }
+            frame = profit_data[std_period].set_index("Period")
+            net_profit = int(frame["Net profit"].sum())
+            profit_col, sales_col, costs_col = st.columns(3)
+            profit_col.metric(f"{period}{tr['net_profit_label']}", inr(net_profit), f"+12.4% vs last {std_period.lower()}")
+            sales_col.metric(tr["sales_collected"], inr(int(net_profit * 2.58)), "42 orders")
+            costs_col.metric(tr["costs_fee"], inr(int(net_profit * 1.58)), tr["p_fee_included"])
+            st.caption(tr["profit_caption"])
+            st.line_chart(frame, color="#159c65", height=300)
+            if (frame["Net profit"] < 0).any():
+                loss_period = frame[frame["Net profit"] < 0].index[0]
+                loss_val = inr(abs(int(frame.loc[loss_period, 'Net profit'])))
+                st.warning(f"{loss_period} {tr['loss_warning'].format(loss=loss_val)}")
+            else:
+                profit_val = inr(int(frame['Net profit'].max()))
+                st.success(tr["profit_success"].format(period=period.lower(), profit=profit_val))
+
     with past:
         st.markdown(f"### {tr['history_title']}")
-        history = pd.DataFrame({
-            "Month": ["February", "March", "April", "May", "June", "July"],
-            "Sales": [25480, 29400, 28100, 33150, 36120, 39840],
-            "Costs": [15800, 18160, 17690, 20470, 22270, 24420],
-            "Net profit": [9680, 11240, 10410, 12680, 13850, 15420],
-        })
-        st.bar_chart(history.set_index("Month")[["Sales", "Costs"]], color=["#36c983", "#ff8f66"], height=300)
-        st.dataframe(history.style.format({"Sales": "₹{:,.0f}", "Costs": "₹{:,.0f}", "Net profit": "₹{:,.0f}"}), use_container_width=True, hide_index=True)
-        st.info(tr["history_info"])
-    x,y=st.columns([2,1]); x.markdown(f'<div class="glass-card"><b>{tr["incoming_order"]}</b><br><span class="muted">{tr["incoming_desc"]}</span></div>',unsafe_allow_html=True)
+        if is_new_account:
+            st.info("📜 No past monthly performance recorded yet for this new vendor account.")
+            history_empty = pd.DataFrame({
+                "Period": ["Current Month"],
+                "Sales": [v_revenue],
+                "Costs": [v_revenue * 0.1],
+                "Net profit": [v_revenue * 0.4],
+            })
+            st.dataframe(history_empty.style.format({"Sales": "₹{:,.0f}", "Costs": "₹{:,.0f}", "Net profit": "₹{:,.0f}"}), use_container_width=True, hide_index=True)
+        else:
+            history = pd.DataFrame({
+                "Month": ["February", "March", "April", "May", "June", "July"],
+                "Sales": [25480, 29400, 28100, 33150, 36120, 39840],
+                "Costs": [15800, 18160, 17690, 20470, 22270, 24420],
+                "Net profit": [9680, 11240, 10410, 12680, 13850, 15420],
+            })
+            st.bar_chart(history.set_index("Month")[["Sales", "Costs"]], color=["#36c983", "#ff8f66"], height=300)
+            st.dataframe(history.style.format({"Sales": "₹{:,.0f}", "Costs": "₹{:,.0f}", "Net profit": "₹{:,.0f}"}), use_container_width=True, hide_index=True)
+            st.info(tr["history_info"])
+
+    x, y = st.columns([2, 1])
+    if is_new_account and real_orders_cnt == 0:
+        x.markdown('<div class="glass-card"><b>No incoming orders yet 📦</b><br><span class="muted">Live customer orders assigned to your stall will appear here with WhatsApp alert dispatch.</span></div>', unsafe_allow_html=True)
+    else:
+        x.markdown(f'<div class="glass-card"><b>{tr["incoming_order"]}</b><br><span class="muted">{tr["incoming_desc"]}</span></div>', unsafe_allow_html=True)
     with y:
-        st.button(tr["accept_order"],type="primary",use_container_width=True); st.button(tr["assign_delivery"],use_container_width=True)
+        st.button(tr["accept_order"], type="primary", use_container_width=True)
+        st.button(tr["assign_delivery"], use_container_width=True)
         
     st.markdown('<div class="section-title">Live inventory</div>',unsafe_allow_html=True)
     st.caption(tr["inventory_caption"])
