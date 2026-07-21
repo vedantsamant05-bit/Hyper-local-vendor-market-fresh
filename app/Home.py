@@ -29,6 +29,46 @@ def load_vendor_accounts():
         return []
     return [account for account in accounts if account.get("profile")]
 
+def save_vendor_account(account):
+    accounts = load_vendor_accounts()
+    mobile = normalize_mobile(account.get("mobile"))
+    updated = False
+    for i, acc in enumerate(accounts):
+        if normalize_mobile(acc.get("mobile")) == mobile:
+            accounts[i] = account
+            updated = True
+            break
+    if not updated:
+        accounts.append(account)
+    try:
+        with VENDOR_USERS_FILE.open("w", encoding="utf-8") as f:
+            json.dump(accounts, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        st.error(f"Failed to save vendor account data: {e}")
+
+def sync_vendors_from_json():
+    if "vendors" not in st.session_state:
+        st.session_state.vendors = list(VENDORS)
+    accounts = load_vendor_accounts()
+    existing_ids = {v["id"] for v in st.session_state.vendors}
+    for acc in accounts:
+        prof = acc.get("profile")
+        if prof and prof.get("id"):
+            listing = profile_to_vendor_listing(prof)
+            if prof["id"] not in existing_ids:
+                st.session_state.vendors.append(listing)
+                existing_ids.add(prof["id"])
+            else:
+                for v in st.session_state.vendors:
+                    if v["id"] == prof["id"]:
+                        v["name"] = listing["name"]
+                        v["owner"] = listing["owner"]
+                        v["phone"] = listing["phone"]
+                        v["area"] = listing["area"]
+                        v["home_zone"] = listing["home_zone"]
+                        if listing["home_zone"] not in v.get("zones", []):
+                            v["zones"] = list(set(v.get("zones", []) + [listing["home_zone"]]))
+
 def get_cookie_vendor_account():
     context = getattr(st, "context", None)
     if not context:
@@ -146,6 +186,7 @@ else:
 
 if "vendors" not in st.session_state:
     st.session_state.vendors = list(VENDORS)
+sync_vendors_from_json()
 
 if "inventory" not in st.session_state:
     st.session_state.inventory = {p["name"]: {"price": p["price"], "stock": p["stock"]} for p in st.session_state.products}
@@ -302,36 +343,41 @@ if not st.session_state.role:
                 stall_name = st.text_input("Stall / shop name", placeholder="e.g. Meera's Fresh Basket")
                 phone = st.text_input("Vendor mobile", placeholder="10-digit number", key="new_vendor_phone")
                 password = st.text_input("Create password", type="password", placeholder="Minimum 4 characters")
+                
+                loc_names = [l["name"] for l in LOCATIONS]
+                locality = st.selectbox("📍 Location / Locality", loc_names)
+                delivery_radius = st.selectbox("📏 Delivery radius", ["1 km", "2 km", "3 km", "5 km"], index=1)
+                delivery_mode = st.selectbox("🚚 Delivery option", ["Self delivery", "Porter / delivery partner", "Both"], index=0)
+                
                 if st.form_submit_button("Create account →", type="primary", use_container_width=True):
                     clean_phone = normalize_mobile(phone)
-                    if not owner_name or not stall_name or len(clean_phone) != 10 or len(password) < 4:
-                        st.error("Please enter owner name, stall name, a 10-digit mobile number, and a password.")
+                    if not owner_name or not stall_name or len(clean_phone) != 10 or len(password) < 4 or not locality:
+                        st.error("Please enter owner name, stall name, a 10-digit mobile number, password, and location.")
                     else:
+                        loc_obj = next((l for l in LOCATIONS if l["name"] == locality), LOCATIONS[0])
+                        pincode = loc_obj.get("pin", "400050")
                         profile = {
-                            "id": f"cookie_vendor_{clean_phone}",
+                            "id": f"vendor_{clean_phone}",
                             "owner": owner_name,
                             "stall": stall_name,
                             "mobile": clean_phone,
                             "whatsapp": f"91{clean_phone}",
-                            "email": "",
-                            "locality": "Bandra (West)",
-                            "pincode": "400050",
-                            "address": "Bandra West, Mumbai",
-                            "radius": "2 km",
+                            "email": f"{clean_phone}@example.com",
+                            "locality": locality,
+                            "pincode": pincode,
+                            "address": f"{locality}, Mumbai",
+                            "radius": delivery_radius,
                             "language": "English",
                             "upi": f"{clean_phone}@upi",
-                            "delivery_mode": "Self delivery",
+                            "delivery_mode": delivery_mode,
                             "is_new": True,
                         }
                         new_account = {"mobile": clean_phone, "password": password, "profile": profile}
+                        save_vendor_account(new_account)
                         set_vendor_cookie(new_account)
                         open_vendor_account(new_account)
-                        st.session_state.new_vendor_cookie_saved = True
-                        st.success("Account created and saved in your browser cookie.")
-            if st.session_state.get("new_vendor_cookie_saved"):
-                if st.button("Open vendor cockpit →", type="primary", use_container_width=True):
-                    st.session_state.new_vendor_cookie_saved = False
-                    st.rerun()
+                        st.success("Account created and saved successfully!")
+                        st.rerun()
     st.stop()
 
 if st.session_state.role == "vendor":
@@ -439,6 +485,12 @@ if st.session_state.role == "vendor":
                     phone_key = st.session_state.get("temp_vendor_phone", mobile)
                     st.session_state.custom_vendors_profiles[phone_key] = st.session_state.vendor_profile
                     
+                    save_vendor_account({
+                        "mobile": normalize_mobile(mobile),
+                        "password": "fresh123",
+                        "profile": st.session_state.vendor_profile
+                    })
+                    
                     if language in ["English", "Hindi", "Marathi"]:
                         st.session_state.cockpit_lang = language
                     st.success("Stall profile saved. Welcome to your vendor cockpit!")
@@ -531,6 +583,16 @@ if st.session_state.role == "vendor":
                         st.session_state.custom_vendors_profiles = {}
                     phone_key = profile.get("mobile", new_whatsapp)
                     st.session_state.custom_vendors_profiles[phone_key] = profile
+                    
+                    # Save updated profile to database (vendor_users.json)
+                    accounts = load_vendor_accounts()
+                    existing_acc = next((a for a in accounts if normalize_mobile(a.get("mobile")) == normalize_mobile(profile.get("mobile"))), None)
+                    pwd = existing_acc.get("password", "fresh123") if existing_acc else "fresh123"
+                    save_vendor_account({
+                        "mobile": normalize_mobile(profile.get("mobile")),
+                        "password": pwd,
+                        "profile": profile
+                    })
                     
                     st.success("Stall profile updated successfully!")
                     st.rerun()
