@@ -227,18 +227,32 @@ def whatsapp_url(vendor, product=None, price=None):
     if product: text += f" Is {product['name']} available today at {inr(price)}?"
     return f"https://wa.me/{phone}?text={quote(text)}"
 
-def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment):
+def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment, customer_name="Customer", customer_phone="9876543210", delivery_address="Bandra West, Mumbai", maps_link=""):
     phone = normalize_whatsapp(vendor.get("phone") or vendor.get("whatsapp"))
     owner_name = vendor.get("owner", "Vendor")
     stall_name = vendor.get("name") or vendor.get("stall") or "Local Stall"
     
+    if not maps_link and delivery_address:
+        maps_link = f"https://maps.google.com/?q={quote(delivery_address)}"
+    
     lines = [
         f"🛒 *FreshKart Local - New Order Alert (#{order_id})*",
         f"📍 *Stall:* {stall_name} (Owner: {owner_name})",
-        f"⏰ *Slot:* {slot} | 💳 *Payment:* {payment}",
         "",
-        "🥬 *Vegetable Order List & Quantities:*",
+        f"👤 *Customer Name:* {customer_name}",
+        f"📱 *Customer Phone:* {customer_phone}",
+        f"🏠 *Delivery Address:* {delivery_address}",
     ]
+    if maps_link:
+        lines.append(f"🗺️ *Live Location (Google Maps):* {maps_link}")
+    
+    lines.extend([
+        "",
+        f"⏰ *Preferred Time Slot:* {slot}",
+        f"💳 *Payment Method:* {payment}",
+        "",
+        "🥬 *Ordered Items List & Quantities:*",
+    ])
     
     subtotal_total = 0
     for item in items_for_vendor:
@@ -251,9 +265,55 @@ def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment)
         lines.append(f"  • {p_name}: {qty} x {p_unit} ({inr(price)} each) = {inr(subtotal)}")
     
     lines.append("")
-    lines.append(f"💰 *Vendor Subtotal:* {inr(subtotal_total)}")
-    lines.append("Please prepare these fresh vegetables for fulfilment. Thank you!")
+    lines.append(f"💰 *Total Bill Amount (Vendor Subtotal):* {inr(subtotal_total)}")
+    lines.append("")
+    lines.append("Please accept and prepare this fresh order. Thank you!")
     
+    msg_text = "\n".join(lines)
+    return f"https://wa.me/{phone}?text={quote(msg_text)}", msg_text
+
+def customer_status_whatsapp_url(customer_phone, status, order_id, stall_name, delivery_mode="Self Delivery", eta="15-20 mins"):
+    phone = normalize_whatsapp(customer_phone)
+    lines = []
+    
+    if status == "Order Confirmed":
+        lines = [
+            f"✅ *Order Confirmed! (#{order_id})*",
+            f"Hello! *{stall_name}* has accepted your order.",
+            f"📦 *Order ID:* {order_id}",
+            "We are selecting your fresh vegetables right now. Thank you for supporting local stalls! 🥬",
+        ]
+    elif status == "Preparing Order":
+        lines = [
+            f"🍳 *Preparing Your Order (# {order_id})*",
+            f"*{stall_name}* is currently picking and packing your fresh produce.",
+            "Your items are undergoing quality check & weighment.",
+        ]
+    elif status == "Out for Delivery":
+        mode_label = "Porter Delivery" if delivery_mode == "Porter Delivery" else "Self Delivery"
+        lines = [
+            f"🚚 *Out for Delivery! (#{order_id})*",
+            f"Your order from *{stall_name}* is on its way!",
+            f"🛵 *Delivery Mode:* {mode_label}",
+            f"⏱️ *Estimated Time of Arrival (ETA):* {eta}",
+        ]
+        if delivery_mode == "Porter Delivery":
+            lines.append("")
+            lines.append("📌 *Delivery Partner Notice:* Your order is being delivered through Porter.")
+        lines.append("")
+        lines.append("Please keep your phone handy to receive your fresh delivery!")
+    elif status == "Order Delivered":
+        lines = [
+            f"🎉 *Order Delivered! (#{order_id})*",
+            f"Your fresh vegetable order from *{stall_name}* has been delivered.",
+            "Thank you for buying hyper-local with FreshKart! Have a healthy day! 🥦",
+        ]
+    else:
+        lines = [
+            f"📢 *Order Status Update (#{order_id})*",
+            f"Status from *{stall_name}*: {status}",
+        ]
+        
     msg_text = "\n".join(lines)
     return f"https://wa.me/{phone}?text={quote(msg_text)}", msg_text
 def add_item(product):
@@ -717,14 +777,176 @@ if st.session_state.role == "vendor":
             st.dataframe(history.style.format({"Sales": "₹{:,.0f}", "Costs": "₹{:,.0f}", "Net profit": "₹{:,.0f}"}), use_container_width=True, hide_index=True)
             st.info(tr["history_info"])
 
-    x, y = st.columns([2, 1])
-    if is_new_account and real_orders_cnt == 0:
-        x.markdown('<div class="glass-card"><b>No incoming orders yet 📦</b><br><span class="muted">Live customer orders assigned to your stall will appear here with WhatsApp alert dispatch.</span></div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">💬 Live WhatsApp Customer Orders & Dispatch</div>', unsafe_allow_html=True)
+    st.caption("Manage incoming orders and update customers directly on WhatsApp in real time with single-tap action buttons.")
+    
+    cur_vid = profile.get("id", "")
+    cur_v_phone = normalize_whatsapp(profile.get("whatsapp") or profile.get("mobile"))
+    
+    active_vendor_orders = []
+    for ord_obj in st.session_state.orders:
+        for vb in ord_obj.get("vendor_breakdown", []):
+            if vb.get("vendor_id") == cur_vid or vb.get("vendor_phone") == cur_v_phone or vb.get("vendor_name") == profile.get("stall"):
+                active_vendor_orders.append((ord_obj, vb))
+                
+    if not active_vendor_orders:
+        st.info("📦 No customer orders received yet. Click below to add a sample test order to try the WhatsApp action buttons!")
+        if st.button("➕ Generate Sample Demo Order for Testing WhatsApp Updates", type="primary"):
+            demo_id = f"FK{1001 + len(st.session_state.orders)}"
+            sample_items = [
+                {"name": "Fresh Tomato", "unit": "1 kg", "qty": 2, "price": 40},
+                {"name": "Palak (Spinach)", "unit": "1 bunch", "qty": 1, "price": 25},
+                {"name": "Bhindi (Lady Finger)", "unit": "500g", "qty": 1, "price": 35}
+            ]
+            sample_subtotal = sum(i["qty"] * i["price"] for i in sample_items)
+            c_phone = "9876543210"
+            c_name = "Laviniya Sharma"
+            c_address = "Flat 402, Sunshine Heights, Hill Road, Bandra West, Mumbai - 400050"
+            c_maps = "https://maps.google.com/?q=19.0544,72.8402"
+            
+            sample_vb = {
+                "vendor_id": cur_vid,
+                "vendor_name": profile.get("stall", "Local Stall"),
+                "vendor_owner": profile.get("owner", "Vendor"),
+                "vendor_phone": cur_v_phone,
+                "items": sample_items,
+                "subtotal": sample_subtotal,
+            }
+            
+            demo_order = {
+                "id": demo_id,
+                "customer_name": c_name,
+                "customer_phone": c_phone,
+                "delivery_address": c_address,
+                "maps_link": c_maps,
+                "total": sample_subtotal,
+                "slot": "10 AM - 11 AM",
+                "payment": "UPI",
+                "status": "Order Placed",
+                "delivery_mode": profile.get("delivery_mode", "Self Delivery"),
+                "eta": "15-20 mins",
+                "vendor_breakdown": [sample_vb]
+            }
+            
+            wa_url, wa_msg = vendor_order_whatsapp_url(
+                profile, demo_id, [{"product": {"name": i["name"], "unit": i["unit"]}, "qty": i["qty"], "price": i["price"]} for i in sample_items],
+                demo_order["slot"], demo_order["payment"], c_name, c_phone, c_address, c_maps
+            )
+            sample_vb["whatsapp_url"] = wa_url
+            sample_vb["whatsapp_msg"] = wa_msg
+            
+            st.session_state.orders.append(demo_order)
+            st.rerun()
     else:
-        x.markdown(f'<div class="glass-card"><b>{tr["incoming_order"]}</b><br><span class="muted">{tr["incoming_desc"]}</span></div>', unsafe_allow_html=True)
-    with y:
-        st.button(tr["accept_order"], type="primary", use_container_width=True)
-        st.button(tr["assign_delivery"], use_container_width=True)
+        for idx, (ord_obj, vb) in enumerate(reversed(active_vendor_orders)):
+            ord_id = ord_obj.get("id", f"FK{idx+1}")
+            c_name = ord_obj.get("customer_name", "Laviniya")
+            c_phone = ord_obj.get("customer_phone", "9876543210")
+            c_address = ord_obj.get("delivery_address", "Bandra West, Mumbai")
+            c_maps = ord_obj.get("maps_link", f"https://maps.google.com/?q={quote(c_address)}")
+            curr_status = ord_obj.get("status", "Confirmed")
+            slot = ord_obj.get("slot", "9–10 AM")
+            payment = ord_obj.get("payment", "UPI")
+            
+            status_colors = {
+                "Order Placed": "#ffc107",
+                "Confirmed": "#17a2b8",
+                "Order Confirmed": "#17a2b8",
+                "Preparing Order": "#fd7e14",
+                "Out for Delivery": "#007bff",
+                "Order Delivered": "#28a745"
+            }
+            badge_color = status_colors.get(curr_status, "#6c757d")
+            
+            with st.container():
+                st.markdown(f"""
+                <div class="glass-card" style="border-left: 6px solid {badge_color}; margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0;">Order #{ord_id}</h3>
+                        <span style="background: {badge_color}; color: white; padding: 4px 12px; border-radius: 12px; font-weight: bold; font-size: 0.85rem;">
+                            Status: {curr_status}
+                        </span>
+                    </div>
+                    <hr style="margin: 10px 0;">
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                        <div><b>👤 Customer:</b> {c_name} (📱 <a href="https://wa.me/{normalize_whatsapp(c_phone)}" target="_blank">{c_phone}</a>)</div>
+                        <div><b>⏰ Slot:</b> {slot}</div>
+                        <div><b>💳 Payment:</b> {payment}</div>
+                        <div><b>💰 Subtotal:</b> {inr(vb.get('subtotal', 0))}</div>
+                    </div>
+                    <div style="margin-top: 6px;"><b>🏠 Address:</b> {c_address}</div>
+                    <div style="margin-top: 4px;"><b>📍 Live Location:</b> <a href="{c_maps}" target="_blank">{c_maps}</a></div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Order items table
+                items_df = pd.DataFrame(vb.get("items", []))
+                if not items_df.empty and "qty" in items_df.columns and "price" in items_df.columns:
+                    items_df_disp = items_df.copy()
+                    items_df_disp["Subtotal (₹)"] = items_df_disp["qty"] * items_df_disp["price"]
+                    items_df_disp = items_df_disp.rename(columns={"name": "Vegetable", "unit": "Unit", "qty": "Qty", "price": "Price (₹)"})
+                    disp_cols = [c for c in ["Vegetable", "Unit", "Qty", "Price (₹)", "Subtotal (₹)"] if c in items_df_disp.columns]
+                    st.dataframe(items_df_disp[disp_cols], hide_index=True, use_container_width=True)
+                
+                st.markdown("#### 📲 Trigger WhatsApp Updates to Customer")
+                
+                bcol1, bcol2, bcol3, bcol4 = st.columns(4)
+                
+                # 1. Confirm Order
+                with bcol1:
+                    conf_url, conf_msg = customer_status_whatsapp_url(c_phone, "Order Confirmed", ord_id, profile.get("stall", "Local Stall"))
+                    if st.button("1. Order Confirmed 🟢", key=f"conf_btn_{ord_id}_{idx}", use_container_width=True):
+                        ord_obj["status"] = "Order Confirmed"
+                        st.session_state[f"show_wa_{ord_id}"] = ("Order Confirmed", conf_url, conf_msg)
+                        st.toast(f"✅ Order #{ord_id} set to Order Confirmed!")
+                        st.rerun()
+                
+                # 2. Preparing Order
+                with bcol2:
+                    prep_url, prep_msg = customer_status_whatsapp_url(c_phone, "Preparing Order", ord_id, profile.get("stall", "Local Stall"))
+                    if st.button("2. Preparing Order 🍳", key=f"prep_btn_{ord_id}_{idx}", use_container_width=True):
+                        ord_obj["status"] = "Preparing Order"
+                        st.session_state[f"show_wa_{ord_id}"] = ("Preparing Order", prep_url, prep_msg)
+                        st.toast(f"🍳 Order #{ord_id} set to Preparing Order!")
+                        st.rerun()
+                        
+                # 3. Out for Delivery
+                with bcol3:
+                    with st.popover("3. Out for Delivery 🚚", use_container_width=True):
+                        st.markdown("**Delivery Options & ETA**")
+                        del_mode = st.radio("Delivery Mode", ["Self Delivery", "Porter Delivery"], key=f"del_mode_{ord_id}_{idx}")
+                        eta_val = st.selectbox("Estimated Time of Arrival (ETA)", ["10-15 mins", "15-20 mins", "25-30 mins", "35-45 mins", "60 mins"], key=f"eta_{ord_id}_{idx}")
+                        
+                        out_url, out_msg = customer_status_whatsapp_url(c_phone, "Out for Delivery", ord_id, profile.get("stall", "Local Stall"), delivery_mode=del_mode, eta=eta_val)
+                        if st.button("Send Notification 📲", key=f"send_out_{ord_id}_{idx}", type="primary", use_container_width=True):
+                            ord_obj["status"] = "Out for Delivery"
+                            ord_obj["delivery_mode"] = del_mode
+                            ord_obj["eta"] = eta_val
+                            st.session_state[f"show_wa_{ord_id}"] = ("Out for Delivery", out_url, out_msg)
+                            st.toast(f"🚚 Order #{ord_id} Out for Delivery ({del_mode})!")
+                            st.rerun()
+                            
+                # 4. Order Delivered
+                with bcol4:
+                    deliv_url, deliv_msg = customer_status_whatsapp_url(c_phone, "Order Delivered", ord_id, profile.get("stall", "Local Stall"))
+                    if st.button("4. Order Delivered 🎉", key=f"deliv_btn_{ord_id}_{idx}", use_container_width=True):
+                        ord_obj["status"] = "Order Delivered"
+                        st.session_state[f"show_wa_{ord_id}"] = ("Order Delivered", deliv_url, deliv_msg)
+                        st.toast(f"🎉 Order #{ord_id} marked Delivered!")
+                        st.rerun()
+                
+                # Show active generated WhatsApp dispatch link if triggered
+                if f"show_wa_{ord_id}" in st.session_state:
+                    wa_type, wa_l, wa_txt = st.session_state[f"show_wa_{ord_id}"]
+                    st.success(f"📱 WhatsApp Action Ready: **{wa_type}** for Customer `{c_name}` ({c_phone})")
+                    st.code(wa_txt, language="markdown")
+                    sc1, sc2 = st.columns([3, 1])
+                    sc1.link_button(f"📲 Click to Send '{wa_type}' on WhatsApp to {c_name} ({c_phone})", wa_l, use_container_width=True)
+                    if sc2.button("Dismiss Link", key=f"dsm_{ord_id}_{idx}"):
+                        del st.session_state[f"show_wa_{ord_id}"]
+                        st.rerun()
+                        
+                st.markdown("---")
         
     st.markdown('<div class="section-title">Live inventory</div>',unsafe_allow_html=True)
     st.caption(tr["inventory_caption"])
@@ -947,72 +1169,132 @@ elif nav == "My cart":
         if c.button("−1",key="remove"+item["key"]): st.session_state.cart[item["key"]]-=1; st.session_state.cart={k:v for k,v in st.session_state.cart.items() if v};st.rerun()
     if items:
         st.markdown(f'<div class="order-box"><b>Total</b><span style="float:right;font-size:1.35rem;font-weight:800">{inr(cart_total())}</span><br><span class="muted">Your order is grouped by vendor for fresh fulfilment.</span></div>',unsafe_allow_html=True)
-        slot=st.selectbox("Delivery slot",["9–10 AM","10–11 AM","6–7 PM","7–8 PM"]); payment=st.radio("Payment",["UPI","Cash on delivery"],horizontal=True)
-        if st.button("Place demo order",type="primary",use_container_width=True):
-            order_id = f"FK{1001+len(st.session_state.orders)}"
-            vendor_groups = {}
-            for it in items:
-                v_id = it["vendor"]["id"]
-                if v_id not in vendor_groups:
-                    vendor_groups[v_id] = {"vendor": it["vendor"], "items": []}
-                vendor_groups[v_id]["items"].append(it)
+        
+        st.markdown("### 📍 Delivery & Contact Details for WhatsApp Updates")
+        ccol1, ccol2 = st.columns(2)
+        with ccol1:
+            c_name = st.text_input("Customer Name 👤", value=st.session_state.get("customer_name", "Laviniya"))
+            c_phone = st.text_input("Customer Phone Number 📱", value=st.session_state.get("customer_phone", "9876543210"), help="Vendors will send real-time WhatsApp status updates to this number.")
+        with ccol2:
+            slot = st.selectbox("Preferred Delivery Slot ⏰", ["9–10 AM", "10–11 AM", "6–7 PM", "7–8 PM"])
+            payment = st.radio("Payment Method 💳", ["UPI", "Cash on delivery"], horizontal=True)
             
-            vendor_breakdown = []
-            auto_script_links = []
-            for v_id, group in vendor_groups.items():
-                v = group["vendor"]
-                v_items = group["items"]
-                wa_url, wa_msg = vendor_order_whatsapp_url(v, order_id, v_items, slot, payment)
-                vendor_breakdown.append({
-                    "vendor_id": v_id,
-                    "vendor_name": v["name"],
-                    "vendor_owner": v["owner"],
-                    "vendor_phone": normalize_whatsapp(v.get("phone") or v.get("whatsapp")),
-                    "items": [{"name": i["product"]["name"], "unit": i["product"].get("unit", ""), "qty": i["qty"], "price": i["price"]} for i in v_items],
-                    "subtotal": sum(i["qty"] * i["price"] for i in v_items),
-                    "whatsapp_url": wa_url,
-                    "whatsapp_msg": wa_msg
-                })
-                auto_script_links.append(wa_url)
-            
-            new_order = {
-                "id": order_id,
-                "total": cart_total(),
-                "slot": slot,
-                "payment": payment,
-                "status": "Confirmed",
-                "vendor_breakdown": vendor_breakdown
-            }
-            st.session_state.orders.append(new_order)
-            st.session_state.last_order_placed = new_order
-            st.session_state.cart = {}
-            st.rerun()
+        c_address = st.text_area("Complete Delivery Address 🏠", value=st.session_state.get("customer_address", "Flat 402, Sunshine Heights, Hill Road, Bandra West, Mumbai - 400050"), placeholder="Enter street, building, flat number & landmark")
+        c_maps = st.text_input("📍 Live Location (Google Maps Link)", value=st.session_state.get("customer_maps_link", "https://maps.google.com/?q=19.0544,72.8402"), placeholder="Paste your Google Maps location URL (or leave default search link)")
+        
+        if not c_maps.strip() and c_address.strip():
+            c_maps = f"https://maps.google.com/?q={quote(c_address.strip())}"
+
+        if st.button("Place Order & Notify Vendor on WhatsApp 🚀", type="primary", use_container_width=True):
+            clean_c_phone = normalize_whatsapp(c_phone)
+            if not c_name.strip() or len(clean_c_phone) < 10 or not c_address.strip():
+                st.error("Please enter your name, a valid 10-digit mobile number, and delivery address.")
+            else:
+                st.session_state.customer_name = c_name
+                st.session_state.customer_phone = c_phone
+                st.session_state.customer_address = c_address
+                st.session_state.customer_maps_link = c_maps
+                
+                order_id = f"FK{1001+len(st.session_state.orders)}"
+                vendor_groups = {}
+                for it in items:
+                    v_id = it["vendor"]["id"]
+                    if v_id not in vendor_groups:
+                        vendor_groups[v_id] = {"vendor": it["vendor"], "items": []}
+                    vendor_groups[v_id]["items"].append(it)
+                
+                vendor_breakdown = []
+                for v_id, group in vendor_groups.items():
+                    v = group["vendor"]
+                    v_items = group["items"]
+                    wa_url, wa_msg = vendor_order_whatsapp_url(
+                        v, order_id, v_items, slot, payment,
+                        customer_name=c_name, customer_phone=c_phone,
+                        delivery_address=c_address, maps_link=c_maps
+                    )
+                    vendor_breakdown.append({
+                        "vendor_id": v_id,
+                        "vendor_name": v["name"],
+                        "vendor_owner": v["owner"],
+                        "vendor_phone": normalize_whatsapp(v.get("phone") or v.get("whatsapp")),
+                        "items": [{"name": i["product"]["name"], "unit": i["product"].get("unit", ""), "qty": i["qty"], "price": i["price"]} for i in v_items],
+                        "subtotal": sum(i["qty"] * i["price"] for i in v_items),
+                        "whatsapp_url": wa_url,
+                        "whatsapp_msg": wa_msg
+                    })
+                
+                new_order = {
+                    "id": order_id,
+                    "customer_name": c_name,
+                    "customer_phone": c_phone,
+                    "delivery_address": c_address,
+                    "maps_link": c_maps,
+                    "total": cart_total(),
+                    "slot": slot,
+                    "payment": payment,
+                    "status": "Order Placed",
+                    "delivery_mode": "Self Delivery",
+                    "eta": "15-20 mins",
+                    "vendor_breakdown": vendor_breakdown
+                }
+                st.session_state.orders.append(new_order)
+                st.session_state.last_order_placed = new_order
+                st.session_state.cart = {}
+                st.rerun()
 
     if "last_order_placed" in st.session_state and st.session_state.last_order_placed:
         last = st.session_state.last_order_placed
-        st.success(f"🎉 Order {last['id']} created successfully! Vegetable lists and quantities generated for vendors.")
-        st.markdown("### 📲 Dispatch Vegetable List & Quantity to Vendors via WhatsApp")
+        st.success(f"🎉 Order {last['id']} created successfully! Order details and live location ready to send on WhatsApp.")
+        st.markdown("### 📲 Send Complete Order Details to Vendors via WhatsApp")
         for vb in last.get("vendor_breakdown", []):
             with st.container():
                 st.markdown(f"**🏪 {vb['vendor_name']}** ({vb['vendor_owner']}) — *WhatsApp:* `{vb['vendor_phone']}`")
                 for itm in vb["items"]:
                     st.markdown(f"  - {itm['name']}: **{itm['qty']} × {itm['unit']}** @ {inr(itm['price'])} = **{inr(itm['qty']*itm['price'])}**")
-                st.link_button(f"📲 Send Vegetable List to {vb['vendor_name']} ({vb['vendor_phone']})", vb["whatsapp_url"], use_container_width=True)
+                st.link_button(f"📲 Send Order Details & Location to {vb['vendor_name']} ({vb['vendor_phone']})", vb["whatsapp_url"], use_container_width=True)
                 st.markdown("---")
-        if st.button("Close Order Dispatch Summary"):
+        if st.button("Close Order Confirmation Summary"):
             del st.session_state["last_order_placed"]
             st.rerun()
 
 else:
     st.title("Your orders 📦")
-    if not st.session_state.orders: st.info("No orders yet — your neighbourhood harvest is waiting.")
+    if not st.session_state.orders:
+        st.info("No orders yet — your neighbourhood harvest is waiting.")
     for order in reversed(st.session_state.orders):
-        st.markdown(f'<div class="order-box"><b>{order["id"]}</b><span style="float:right">{order["status"]}</span><br><span class="muted">{order["slot"]} · {order["payment"]}</span><br><b>{inr(order["total"])}</b></div>',unsafe_allow_html=True)
+        status_colors = {
+            "Order Placed": "#ffc107",
+            "Confirmed": "#17a2b8",
+            "Order Confirmed": "#17a2b8",
+            "Preparing Order": "#fd7e14",
+            "Out for Delivery": "#007bff",
+            "Order Delivered": "#28a745"
+        }
+        st_color = status_colors.get(order.get("status", "Confirmed"), "#159c65")
+        
+        mode_txt = order.get("delivery_mode", "Self Delivery")
+        porter_tag = " (📦 Delivered through Porter Partner)" if mode_txt == "Porter Delivery" else ""
+        
+        st.markdown(f"""
+        <div class="order-box" style="border-left: 6px solid {st_color}; margin-bottom: 15px;">
+            <b>Order #{order["id"]}</b>
+            <span style="float:right; font-weight: bold; background: {st_color}; color: white; padding: 2px 10px; border-radius: 8px;">
+                {order.get("status", "Confirmed")}
+            </span>
+            <br>
+            <span class="muted">⏰ Slot: {order["slot"]} · 💳 Payment: {order["payment"]}</span>
+            <br>
+            <span class="muted">🚚 Mode: <b>{mode_txt}</b>{porter_tag} · ⏱️ ETA: <b>{order.get("eta", "15-20 mins")}</b></span>
+            <br>
+            <b>Total Bill Amount: {inr(order["total"])}</b>
+        </div>
+        """, unsafe_allow_html=True)
+        
         if "vendor_breakdown" in order and order["vendor_breakdown"]:
-            with st.expander(f"🥬 Vegetable List & Quantity Breakdown ({len(order['vendor_breakdown'])} Vendor{'s' if len(order['vendor_breakdown'])>1 else ''})"):
+            with st.expander(f"🥬 Vegetable List & WhatsApp Link ({len(order['vendor_breakdown'])} Vendor{'s' if len(order['vendor_breakdown'])>1 else ''})"):
                 for vb in order["vendor_breakdown"]:
                     st.markdown(f"**🏪 {vb['vendor_name']}** ({vb['vendor_owner']}) — 📱 `{vb['vendor_phone']}`")
                     for itm in vb["items"]:
                         st.write(f"  • {itm['name']}: {itm['qty']} × {itm['unit']} ({inr(itm['price'])}) = {inr(itm['qty']*itm['price'])}")
-                    st.link_button(f"📲 Send Vegetable List on WhatsApp ({vb['vendor_phone']})", vb["whatsapp_url"], use_container_width=True)
+                    st.link_button(f"📲 Send Order Details to {vb['vendor_name']} on WhatsApp", vb["whatsapp_url"], use_container_width=True)
                     st.markdown("---")
