@@ -334,28 +334,15 @@ st.sidebar.caption("Hyperlocal. Hyperfresh.")
 if st.session_state.role and st.sidebar.button("↪ Log out", use_container_width=True): st.session_state.role=None; st.rerun()
 
 if not st.session_state.role:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔐 Account Access")
+    st.sidebar.info("Select **Customer** or **Vendor Login** on the main page to enter the app.")
+    
     st.markdown("""<div class="hero"><span class="pill">✦ INDIA'S LOCAL-FOOD NETWORK</span><h1>The freshest way to shop your neighbourhood.</h1><p>Compare real-time vegetable prices, discover nearby stalls, and chat with a vendor in one tap.</p></div>""", unsafe_allow_html=True)
     for col, (number, label) in zip(st.columns(3), [("4", "live local stalls"), ("50+", "fresh items daily"), ("25 min", "average delivery")]):
         col.markdown(f'<div class="landing-stat"><b>{number}</b><span class="muted">{label}</span></div>', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">A better way to fill your basket</div>', unsafe_allow_html=True)
-    for col, (icon, title, text) in zip(st.columns(3), [("🔎", "Compare, don’t guess", "See real vendor prices before you commit."), ("💬", "One-tap vendor chat", "Ask about freshness or availability on WhatsApp."), ("🌱", "Neighbourhood impact", "Your purchase supports local food businesses.")]):
-        col.markdown(f'<div class="feature-card"><div class="icon">{icon}</div><h3>{title}</h3><p>{text}</p></div>', unsafe_allow_html=True)
-    st.markdown('<div class="social-proof"><b>“I found fresher vegetables at a better price, two streets away.”</b><br><span>— Laviniya, FreshKart Local customer</span></div>', unsafe_allow_html=True)
     
-    st.markdown('<div class="section-title">Fresh in your neighbourhood today 🥬</div>', unsafe_allow_html=True)
-    gallery_cols = st.columns(6)
-    for col, p in zip(gallery_cols, st.session_state.products[:6]):
-        with col:
-            img_url = p.get("image", "https://images.unsplash.com/photo-1610348725531-843dff163e2c?w=400&auto=format&fit=crop&q=60")
-            st.markdown(f"""
-            <div class="product-card" style="padding: 10px; margin-bottom: 20px; text-align: center; min-height: 165px;">
-                <img src="{img_url}" style="width: 100%; height: 95px; object-fit: cover; border-radius: 8px; margin-bottom: 6px;">
-                <b style="font-size: 0.85rem; display: block; height: 35px; overflow: hidden;">{p['emoji']} {p['name']}</b>
-                <span class="muted" style="font-size: 0.75rem;">{p['unit']}</span>
-            </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown('<div class="section-title">Choose your entry point</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Choose your entry point 🔐</div>', unsafe_allow_html=True)
     a,b=st.columns(2)
     with a:
         st.markdown('<div class="login-card"><div style="font-size:42px">🛍️</div><h2>Shop fresh</h2><p class="muted">Browse 4 local vendors and build a beautiful basket.</p></div>',unsafe_allow_html=True)
@@ -439,6 +426,24 @@ if not st.session_state.role:
                         open_vendor_account(new_account)
                         st.success("Account created and saved successfully!")
                         st.rerun()
+                        
+    st.markdown('<div class="section-title">A better way to fill your basket</div>', unsafe_allow_html=True)
+    for col, (icon, title, text) in zip(st.columns(3), [("🔎", "Compare, don’t guess", "See real vendor prices before you commit."), ("💬", "One-tap vendor chat", "Ask about freshness or availability on WhatsApp."), ("🌱", "Neighbourhood impact", "Your purchase supports local food businesses.")]):
+        col.markdown(f'<div class="feature-card"><div class="icon">{icon}</div><h3>{title}</h3><p>{text}</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="social-proof"><b>“I found fresher vegetables at a better price, two streets away.”</b><br><span>— Laviniya, FreshKart Local customer</span></div>', unsafe_allow_html=True)
+    
+    st.markdown('<div class="section-title">Fresh in your neighbourhood today 🥬</div>', unsafe_allow_html=True)
+    gallery_cols = st.columns(6)
+    for col, p in zip(gallery_cols, st.session_state.products[:6]):
+        with col:
+            img_url = p.get("image", "https://images.unsplash.com/photo-1610348725531-843dff163e2c?w=400&auto=format&fit=crop&q=60")
+            st.markdown(f"""
+            <div class="product-card" style="padding: 10px; margin-bottom: 20px; text-align: center; min-height: 165px;">
+                <img src="{img_url}" style="width: 100%; height: 95px; object-fit: cover; border-radius: 8px; margin-bottom: 6px;">
+                <b style="font-size: 0.85rem; display: block; height: 35px; overflow: hidden;">{p['emoji']} {p['name']}</b>
+                <span class="muted" style="font-size: 0.75rem;">{p['unit']}</span>
+            </div>
+            """, unsafe_allow_html=True)
     st.stop()
 
 if st.session_state.role == "vendor":
