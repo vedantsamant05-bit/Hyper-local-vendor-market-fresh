@@ -1,3 +1,7 @@
+import sys, asyncio
+if sys.platform == "win32" and sys.version_info >= (3, 14):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
@@ -67,6 +71,8 @@ def sync_vendors_from_json():
                         v["phone"] = listing["phone"]
                         v["area"] = listing["area"]
                         v["home_zone"] = listing["home_zone"]
+                        v["min_order_value"] = listing.get("min_order_value", 100)
+                        v["delivery_mode"] = listing.get("delivery_mode", "Self delivery")
                         if listing["home_zone"] not in v.get("zones", []):
                             v["zones"] = list(set(v.get("zones", []) + [listing["home_zone"]]))
 
@@ -120,6 +126,8 @@ def profile_to_vendor_listing(profile):
         "accent": "#10b981",
         "delta": 0,
         "photo": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800",
+        "min_order_value": profile.get("min_order_value", 100),
+        "delivery_mode": profile.get("delivery_mode", "Self delivery"),
     }
 
 def open_vendor_account(account):
@@ -174,7 +182,7 @@ if "update_prod" in st.query_params and "update_price" in st.query_params:
     st.query_params.clear()
     st.rerun()
 
-for key, default in {"cart": {}, "orders": [], "role": None, "selected_vendor": "meera", "active_category": "All", "vendor_profile": None, "selected_location": "bandra"}.items():
+for key, default in {"cart": {}, "orders": [], "vendor_notifications": [], "role": None, "selected_vendor": "meera", "active_category": "All", "vendor_profile": None, "selected_location": "bandra"}.items():
     if key not in st.session_state: st.session_state[key] = default
 
 if "products" not in st.session_state:
@@ -396,6 +404,7 @@ if not st.session_state.role:
                 locality = st.selectbox("📍 Location / Locality", loc_names)
                 delivery_radius = st.selectbox("📏 Delivery radius", ["1 km", "2 km", "3 km", "5 km"], index=1)
                 delivery_mode = st.selectbox("🚚 Delivery option", ["Self delivery", "Porter / delivery partner", "Both"], index=0)
+                min_order_val = st.number_input("Minimum Order Value (₹)", min_value=0, value=100, step=10, key="new_vendor_mov")
                 
                 if st.form_submit_button("Create account →", type="primary", use_container_width=True):
                     clean_phone = normalize_mobile(phone)
@@ -418,6 +427,7 @@ if not st.session_state.role:
                             "language": "English",
                             "upi": f"{clean_phone}@upi",
                             "delivery_mode": delivery_mode,
+                            "min_order_value": int(min_order_val),
                             "is_new": True,
                         }
                         new_account = {"mobile": clean_phone, "password": password, "profile": profile}
@@ -597,6 +607,7 @@ if st.session_state.role == "vendor":
             st.markdown(f"#### {tr['settlement_title']}")
             settlement_left, settlement_right = st.columns(2)
             new_upi = settlement_left.text_input(tr["upi_label"], value=profile.get("upi", ""))
+            new_mov = settlement_left.number_input(tr.get("min_order_value_label", "Minimum Order Value (₹)"), min_value=0, value=int(profile.get("min_order_value", 100)), step=10, key="settle_mov_widget")
             
             delivery_opts_map = {
                 tr["delivery_mode_self"]: "Self delivery",
@@ -625,6 +636,7 @@ if st.session_state.role == "vendor":
                     profile["language"] = new_lang
                     profile["upi"] = new_upi
                     profile["delivery_mode"] = new_delivery_mode
+                    profile["min_order_value"] = int(new_mov)
                     
                     # Sync back to the st.session_state.vendors list
                     v_id = profile.get("id", "meera")
@@ -639,6 +651,8 @@ if st.session_state.role == "vendor":
                             v["zones"] = [loc_id]
                             v["zone_deltas"] = {loc_id: 0}
                             v["zone_time"] = {loc_id: "15 min"}
+                            v["min_order_value"] = int(new_mov)
+                            v["delivery_mode"] = new_delivery_mode
                             
                     # Update cockpit UI language immediately if changed to English, Hindi, or Marathi
                     if new_lang in ["English", "Hindi", "Marathi"]:
@@ -710,6 +724,69 @@ if st.session_state.role == "vendor":
                 v_revenue += vb.get("subtotal", 0)
 
     real_orders_cnt = len(v_orders)
+
+    # Live Vendor Notifications Panel
+    st.markdown("### 🔔 Live Order Notifications & Fulfillment")
+    v_notifs = [n for n in st.session_state.get("vendor_notifications", []) if n.get("vendor_id") == cur_vid or n.get("vendor_phone") == profile.get("whatsapp")]
+    
+    if not v_notifs:
+        st.info("No active order notifications at the moment.")
+    else:
+        for notif in reversed(v_notifs):
+            ord_id = notif.get("order_id", "N/A")
+            c_name = notif.get("customer_name", "Customer")
+            c_phone = notif.get("customer_phone", "N/A")
+            subtot = notif.get("subtotal", 0)
+            items_list = ", ".join([f"{it['qty']}x {it['name']}" for it in notif.get("items", [])])
+            
+            matching_ord = next((o for o in st.session_state.orders if o["id"] == ord_id), None)
+            curr_status = matching_ord.get("status", "Order Placed") if matching_ord else "Order Placed"
+            curr_delivery = matching_ord.get("delivery_mode", profile.get("delivery_mode", "Self delivery")) if matching_ord else profile.get("delivery_mode", "Self delivery")
+            
+            st.markdown(f"""
+            <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; padding: 12px 16px; border-radius: 8px; margin-bottom: 12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong>📦 Order #{ord_id} — {inr(subtot)}</strong>
+                    <span style="background:#10b981; color:white; padding:2px 8px; border-radius:12px; font-size:12px;">Status: {curr_status}</span>
+                </div>
+                <p style="margin:4px 0 2px 0; font-size:13px; color:#475569;">
+                    <strong>Customer:</strong> {c_name} ({c_phone}) | <strong>Items:</strong> {items_list}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            c_sel1, c_sel2, c_sel3 = st.columns([2, 2, 1])
+            with c_sel1:
+                v_del_mode = profile.get("delivery_mode", "Self delivery")
+                if v_del_mode == "Both":
+                    chosen_del = st.selectbox(
+                        f"Fulfillment Method ({ord_id})",
+                        ["Self Delivery", "Porter Delivery"],
+                        key=f"del_sel_{ord_id}",
+                        index=0 if "Self" in str(curr_delivery) else 1
+                    )
+                    if matching_ord:
+                        matching_ord["delivery_mode"] = chosen_del
+                else:
+                    st.write(f"🚚 **Fulfillment:** {v_del_mode}")
+                    if matching_ord:
+                        matching_ord["delivery_mode"] = v_del_mode
+            with c_sel2:
+                status_options = ["Order Placed", "Order Confirmed", "Preparing Order", "Out for Delivery", "Order Delivered", "Cancelled"]
+                st_idx = status_options.index(curr_status) if curr_status in status_options else 0
+                new_st = st.selectbox(f"Update Status ({ord_id})", status_options, index=st_idx, key=f"st_sel_{ord_id}")
+                if matching_ord and new_st != curr_status:
+                    matching_ord["status"] = new_st
+                    st.rerun()
+            with c_sel3:
+                st.write("")
+                st.write("")
+                if notif.get("status") == "unread":
+                    if st.button("Mark Read", key=f"read_{ord_id}_{cur_vid}"):
+                        notif["status"] = "read"
+                        st.rerun()
+                else:
+                    st.caption("✅ Read")
 
     if is_new_account:
         stats = [
@@ -1087,7 +1164,20 @@ if nav == "Discover":
                 zpill=f"+₹{zdelta}/item" if zdelta>0 else "🏠 Home zone"
                 zpill_bg="#c9ffdd" if zdelta==0 else "#fff3cd"
                 zpill_color="#0d4b38" if zdelta==0 else "#7a4f00"
-                st.markdown(f'<div class="vendor-card"><span class="mini-pill" style="background:{v["accent"]};color:white">{dtime}</span> <span class="mini-pill" style="background:{zpill_bg};color:{zpill_color}">{zpill}</span><div class="vendor-name" style="margin-top:12px">{v["name"]}</div><div class="muted">{v["area"]} · {v["tagline"]}</div><div class="rating">★ {v["rating"]}</div></div>',unsafe_allow_html=True)
+                v_mov = v.get("min_order_value", 100)
+                v_mode = v.get("delivery_mode", "Self delivery")
+                st.markdown(f'''
+                <div class="vendor-card">
+                    <span class="mini-pill" style="background:{v["accent"]};color:white">{dtime}</span>
+                    <span class="mini-pill" style="background:{zpill_bg};color:{zpill_color}">{zpill}</span>
+                    <div class="vendor-name" style="margin-top:10px">{v["name"]}</div>
+                    <div class="muted">{v["area"]} · {v["tagline"]}</div>
+                    <div style="margin-top: 8px; font-size: 0.8rem; font-weight: 700; color: #d85726; background: #fff3ed; border: 1px solid #ffd4ad; padding: 4px 10px; border-radius: 8px; display: inline-block;">
+                        💰 Min. Order: {inr(v_mov)} · 🚚 {v_mode}
+                    </div>
+                    <div class="rating" style="margin-top:6px;">★ {v["rating"]}</div>
+                </div>
+                ''', unsafe_allow_html=True)
                 if st.button("View prices"+active,key="vendor_"+v["id"],use_container_width=True): st.session_state.selected_vendor=v["id"];st.rerun()
                 st.button("View Stall & Photos 📸", key="profile_"+v["id"], use_container_width=True)
                 st.link_button("WhatsApp",whatsapp_url(v),use_container_width=True)
@@ -1111,6 +1201,8 @@ if nav == "Discover":
                     <h2>{v_details['name']}</h2>
                     <p><b>🧑‍🌾 Owner:</b> {v_details['owner']}</p>
                     <p><b>📍 Area:</b> {v_details['area']}</p>
+                    <p><b>💰 Minimum Order Value:</b> <span style="color:#d85726; font-weight:bold; font-size:1.1rem;">{inr(v_details.get('min_order_value', 100))}</span></p>
+                    <p><b>🚚 Delivery Option:</b> {v_details.get('delivery_mode', 'Self delivery')}</p>
                     <p><b>⭐ Rating:</b> {v_details['rating']} / 5.0</p>
                     <p><b>🚚 Delivery Time:</b> {vendor_delivery_time(v_details)}</p>
                     <p><b>💬 Tagline:</b> <i>"{v_details['tagline']}"</i></p>
@@ -1129,6 +1221,39 @@ if nav == "Discover":
             st.markdown("---")
             
     v=selected_vendor()
+    v_mov = v.get("min_order_value", 100)
+    v_mode = v.get("delivery_mode", "Self delivery")
+
+    if "orders" in st.session_state and st.session_state.orders:
+        active_orders = [o for o in st.session_state.orders if o.get("status") not in ["Order Delivered", "Cancelled"]]
+        if active_orders:
+            latest_act = active_orders[-1]
+            st_mode = latest_act.get("delivery_mode", "Self delivery")
+            del_info = "Delivered by: Vendor's Own Staff (Self Delivery)" if "Self" in str(st_mode) else "Delivered by: Porter Delivery Partner"
+            st.info(f"🔔 **Live Order Tracker (#{latest_act['id']})**: Status is **{latest_act.get('status', 'Order Placed')}** | 🚚 **{del_info}** | ⏱️ ETA: **{latest_act.get('eta', '15-20 mins')}**")
+
+    # Selected Vendor Banner Header
+    st.markdown(f"""
+    <div class="glass-card" style="border-left: 6px solid {v['accent']}; margin-bottom: 18px; padding: 18px 22px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+                <h2 style="margin: 0 0 4px 0; font-size: 1.5rem; color: #173826;">🏪 {v['name']} <span class="muted" style="font-size: 1.05rem; font-weight: normal;">(Owner: {v['owner']})</span></h2>
+                <span class="muted">📍 {v['area']} · <i>"{v['tagline']}"</i></span>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <div style="background: #fff3ed; border: 1.5px solid #ffab91; color: #d85726; padding: 8px 16px; border-radius: 20px; font-weight: 800; font-size: 0.95rem;">
+                    💰 Minimum Order: {inr(v_mov)}
+                </div>
+                <div style="background: #e8f5e9; border: 1.5px solid #a5d6a7; color: #1b5e20; padding: 8px 16px; border-radius: 20px; font-weight: 800; font-size: 0.95rem;">
+                    🚚 {v_mode}
+                </div>
+                <div style="background: #e0f2fe; border: 1.5px solid #7dd3fc; color: #0369a1; padding: 8px 16px; border-radius: 20px; font-weight: 800; font-size: 0.95rem;">
+                    ⏱️ {vendor_delivery_time(v)}
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown(f'<div class="section-title">Search {v["name"]}’s harvest</div>',unsafe_allow_html=True)
     qcol,sortcol=st.columns([3,1]); query=qcol.text_input("Search vegetables",placeholder="Try tomato, gourd, leafy, exotic…",label_visibility="collapsed"); sort=sortcol.selectbox("Sort",["Recommended","Price: low to high","Price: high to low"],label_visibility="collapsed")
@@ -1146,6 +1271,12 @@ if nav == "Discover":
                 price = vendor_price(p, v)
                 stock = st.session_state.inventory.get(p["name"], {"price": p["price"], "stock": p["stock"]})["stock"]
                 img_url = p.get("image", "https://images.unsplash.com/photo-1610348725531-843dff163e2c?w=400&auto=format&fit=crop&q=60")
+                if stock <= 0:
+                    stock_html = '<span style="background:#ffebee; color:#c62828; font-weight:bold; font-size:0.75rem; padding:2px 8px; border-radius:12px; display:inline-block;">Out of Stock 🔴</span>'
+                elif stock < 10:
+                    stock_html = '<span class="muted">Only a few left</span>'
+                else:
+                    stock_html = '<span class="muted">In stock today</span>'
                 st.markdown(f"""
                 <div class="product-card" style="padding: 12px; max-width: 280px; margin: 0 auto 12px auto; min-height: 250px;">
                     <div style="width: 100%; aspect-ratio: 4/3; overflow: hidden; border-radius: 12px; margin-bottom: 8px;">
@@ -1154,11 +1285,14 @@ if nav == "Discover":
                     <b>{p['emoji']} {p['name']}</b>
                     <div class="muted">{p['unit']} · {v['name']}</div>
                     <div class="price">{inr(price)}</div>
-                    <span class="muted">{"Only a few left" if stock<10 else "In stock today"}</span>
+                    {stock_html}
                 </div>
                 """, unsafe_allow_html=True)
                 st.link_button("Ask on WhatsApp", whatsapp_url(v, p, price), use_container_width=True)
-                if st.button("Add to basket", key="add"+v["id"]+p["name"], use_container_width=True): add_item(p); st.toast(f"Added from {v['name']} ✨")
+                if stock <= 0:
+                    st.button("Out of Stock 🚫", key="out_"+v["id"]+p["name"], disabled=True, use_container_width=True)
+                else:
+                    if st.button("Add to basket", key="add"+v["id"]+p["name"], use_container_width=True): add_item(p); st.toast(f"Added from {v['name']} ✨")
 
 elif nav == "My cart":
     st.title("Your vibrant basket 🧺")
@@ -1179,6 +1313,51 @@ elif nav == "My cart":
         b.write(f"{item['qty']} × {inr(item['price'])}")
         if c.button("−1",key="remove"+item["key"]): st.session_state.cart[item["key"]]-=1; st.session_state.cart={k:v for k,v in st.session_state.cart.items() if v};st.rerun()
     if items:
+        # Check Minimum Order Value for each vendor in cart
+        cannot_checkout = False
+        vendor_cart_totals = {}
+        for it in items:
+            v_obj = it["vendor"]
+            vid = v_obj["id"]
+            if vid not in vendor_cart_totals:
+                vendor_cart_totals[vid] = {"vendor": v_obj, "subtotal": 0}
+            vendor_cart_totals[vid]["subtotal"] += it["qty"] * it["price"]
+            
+        st.markdown("### 💰 Vendor Minimum Order Value Status")
+        for vid, vdata in vendor_cart_totals.items():
+            v_obj = vdata["vendor"]
+            v_subtot = vdata["subtotal"]
+            v_mov = v_obj.get("min_order_value", 100)
+            is_fulfilled = v_subtot >= v_mov
+            
+            if is_fulfilled:
+                st.markdown(f"""
+                <div style="background: #e8f5e9; border-left: 5px solid #2e7d32; padding: 12px 16px; border-radius: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <b>🏪 Stall: {v_obj['name']} ({v_obj['owner']})</b>
+                        <span style="background: #2e7d32; color: white; padding: 3px 10px; border-radius: 12px; font-weight: bold; font-size: 0.8rem;">✅ Minimum Order Met</span>
+                    </div>
+                    <div style="font-size: 0.88rem; color: #1b5e20; margin-top: 4px;">
+                        Current items total <b>{inr(v_subtot)}</b> (Vendor's minimum required order value: <b>{inr(v_mov)}</b>).
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                cannot_checkout = True
+                shortfall = v_mov - v_subtot
+                st.markdown(f"""
+                <div style="background: #ffebee; border-left: 5px solid #c62828; padding: 12px 16px; border-radius: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <b>🏪 Stall: {v_obj['name']} ({v_obj['owner']})</b>
+                        <span style="background: #c62828; color: white; padding: 3px 10px; border-radius: 12px; font-weight: bold; font-size: 0.8rem;">🚨 Shortfall of {inr(shortfall)}</span>
+                    </div>
+                    <div style="font-size: 0.88rem; color: #b71c1c; margin-top: 4px;">
+                        Current items total <b>{inr(v_subtot)}</b>. Vendor requires a <b>minimum order value of {inr(v_mov)}</b>.<br>
+                        <b>Please add {inr(shortfall)} more worth of produce from {v_obj['name']} to satisfy the vendor's minimum order requirement and proceed to checkout.</b>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
         st.markdown(f'<div class="order-box"><b>Total</b><span style="float:right;font-size:1.35rem;font-weight:800">{inr(cart_total())}</span><br><span class="muted">Your order is grouped by vendor for fresh fulfilment.</span></div>',unsafe_allow_html=True)
         
         st.markdown("### 📍 Delivery & Contact Details for WhatsApp Updates")
@@ -1196,7 +1375,7 @@ elif nav == "My cart":
         if not c_maps.strip() and c_address.strip():
             c_maps = f"https://maps.google.com/?q={quote(c_address.strip())}"
 
-        if st.button("Place Order & Notify Vendor on WhatsApp 🚀", type="primary", use_container_width=True):
+        if st.button("Place Order & Notify Vendor on WhatsApp 🚀", type="primary", use_container_width=True, disabled=cannot_checkout):
             clean_c_phone = normalize_whatsapp(c_phone)
             if not c_name.strip() or len(clean_c_phone) < 10 or not c_address.strip():
                 st.error("Please enter your name, a valid 10-digit mobile number, and delivery address.")
@@ -1234,6 +1413,31 @@ elif nav == "My cart":
                         "whatsapp_msg": wa_msg
                     })
                 
+                # Deduct inventory stock for each purchased item
+                for vb in vendor_breakdown:
+                    for itm in vb["items"]:
+                        iname = itm["name"]
+                        iqty = itm["qty"]
+                        if iname in st.session_state.inventory:
+                            st.session_state.inventory[iname]["stock"] = max(0, st.session_state.inventory[iname]["stock"] - iqty)
+
+                # Send notifications to vendors
+                if "vendor_notifications" not in st.session_state:
+                    st.session_state.vendor_notifications = []
+                for vb in vendor_breakdown:
+                    st.session_state.vendor_notifications.append({
+                        "id": f"notif_{order_id}_{vb['vendor_id']}",
+                        "order_id": order_id,
+                        "vendor_id": vb["vendor_id"],
+                        "vendor_phone": vb["vendor_phone"],
+                        "customer_name": c_name,
+                        "customer_phone": c_phone,
+                        "address": c_address,
+                        "subtotal": vb["subtotal"],
+                        "items": vb["items"],
+                        "status": "unread"
+                    })
+
                 new_order = {
                     "id": order_id,
                     "customer_name": c_name,
@@ -1244,7 +1448,7 @@ elif nav == "My cart":
                     "slot": slot,
                     "payment": payment,
                     "status": "Order Placed",
-                    "delivery_mode": "Self Delivery",
+                    "delivery_mode": "Self delivery",
                     "eta": "15-20 mins",
                     "vendor_breakdown": vendor_breakdown
                 }

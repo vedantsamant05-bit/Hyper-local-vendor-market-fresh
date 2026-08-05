@@ -29,6 +29,8 @@ VENDORS = [
         "accent": "#ff6b35",
         "delta": 0,
         "photo": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=800&auto=format&fit=crop&q=80",
+        "min_order_value": 100,
+        "delivery_mode": "Self delivery",
     },
     {
         "id": "greenleaf",
@@ -46,6 +48,8 @@ VENDORS = [
         "accent": "#36b67a",
         "delta": 8,
         "photo": "https://images.unsplash.com/photo-1574323347407-f5e1ad6d020b?w=800&auto=format&fit=crop&q=80",
+        "min_order_value": 150,
+        "delivery_mode": "Porter / delivery partner",
     },
     {
         "id": "amma",
@@ -63,6 +67,8 @@ VENDORS = [
         "accent": "#9b5de5",
         "delta": -4,
         "photo": "https://images.unsplash.com/photo-1601004890684-d8cbf643f5f2?w=800&auto=format&fit=crop&q=80",
+        "min_order_value": 80,
+        "delivery_mode": "Both",
     },
     {
         "id": "roots",
@@ -80,6 +86,8 @@ VENDORS = [
         "accent": "#f5a524",
         "delta": 5,
         "photo": "https://images.unsplash.com/photo-1464226184884-fa280b87c399?w=800&auto=format&fit=crop&q=80",
+        "min_order_value": 120,
+        "delivery_mode": "Self delivery",
     },
     {
         "id": "harvest",
@@ -97,6 +105,8 @@ VENDORS = [
         "accent": "#e91e8c",
         "delta": 2,
         "photo": "https://images.unsplash.com/photo-1595855759920-86582396756a?w=800&auto=format&fit=crop&q=80",
+        "min_order_value": 100,
+        "delivery_mode": "Both",
     },
     {
         "id": "northfresh",
@@ -114,6 +124,8 @@ VENDORS = [
         "accent": "#00b4d8",
         "delta": 1,
         "photo": "https://images.unsplash.com/photo-1608797178974-15b35a61d121?w=800&auto=format&fit=crop&q=80",
+        "min_order_value": 200,
+        "delivery_mode": "Porter / delivery partner",
     },
 ]
 
@@ -217,6 +229,7 @@ VENDOR_TRANSLATIONS = {
         "delivery_mode_self": "Self delivery",
         "delivery_mode_partner": "Porter / delivery partner",
         "delivery_mode_both": "Both",
+        "min_order_value_label": "Minimum Order Value (₹)",
         "agreed_label": "I confirm these details are correct and I agree to the ₹10/day platform fee.",
         "submit_onboarding": "Save stall profile & open cockpit →",
         "onboarding_error": "Please complete all required fields, enter a 6-digit PIN code, and confirm the platform fee.",
@@ -315,6 +328,7 @@ VENDOR_TRANSLATIONS = {
         "delivery_mode_self": "स्वयं वितरण",
         "delivery_mode_partner": "पोर्टर / डिलीवरी पार्टनर",
         "delivery_mode_both": "दोनों",
+        "min_order_value_label": "न्यूनतम ऑर्डर मूल्य (₹)",
         "agreed_label": "मैं पुष्टि करता हूं कि ये विवरण सही हैं और मैं ₹10/दिन के प्लेटफॉर्म शुल्क से सहमत हूं।",
         "submit_onboarding": "स्टॉल प्रोफ़ाइल सहेजें और कॉकपिट खोलें →",
         "onboarding_error": "कृपया सभी आवश्यक फ़ील्ड भरें, 6 अंकों का पिन कोड दर्ज करें, और प्लेटफ़ॉर्म शुल्क की पुष्टि करें।",
@@ -413,6 +427,7 @@ VENDOR_TRANSLATIONS = {
         "delivery_mode_self": "स्वतःचे वितरण",
         "delivery_mode_partner": "पोर्टर / डिलिव्हरी पार्टनर",
         "delivery_mode_both": "दोन्ही",
+        "min_order_value_label": "किमान ऑर्डर मूल्य (₹)",
         "agreed_label": "मी हे तपशील बरोबर असल्याची खात्री करतो आणि मी ₹१०/दिवस प्लॅटफॉर्म फीशी सहमत आहे.",
         "submit_onboarding": "स्टॉल प्रोफाइल जतन करा आणि कॉकपिट उघडा →",
         "onboarding_error": "कृपया सर्व आवश्यक फील्ड पूर्ण करा, ६-अंकी पिन कोड प्रविष्ट करा आणि प्लॅटफॉर्म फीची पुष्टी करा.",

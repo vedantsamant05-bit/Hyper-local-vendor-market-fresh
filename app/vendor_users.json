@@ -15,7 +15,8 @@
       "radius": "2 km",
       "language": "English",
       "upi": "meera@okaxis",
-      "delivery_mode": "Self delivery"
+      "delivery_mode": "Self delivery",
+      "min_order_value": 100
     }
   },
   {
@@ -34,7 +35,8 @@
       "radius": "3 km",
       "language": "English",
       "upi": "ravi@okaxis",
-      "delivery_mode": "Porter / delivery partner"
+      "delivery_mode": "Porter / delivery partner",
+      "min_order_value": 150
     }
   },
   {
@@ -53,7 +55,8 @@
       "radius": "2 km",
       "language": "English",
       "upi": "amma@okaxis",
-      "delivery_mode": "Self delivery"
+      "delivery_mode": "Both",
+      "min_order_value": 80
     }
   }
 ]
