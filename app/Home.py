@@ -1138,23 +1138,27 @@ if nav == "Discover":
     matches=[p for p in st.session_state.products if (not query or query.lower() in (p["name"]+p["category"]).lower()) and (st.session_state.active_category=="All" or p["category"]==st.session_state.active_category)]
     if sort.startswith("Price"): matches.sort(key=lambda p:vendor_price(p,v),reverse=sort.endswith("low"))
     if not matches: st.warning("No vegetables match that search. Try 'gourd', 'leafy', or 'exotic'.")
-    for row in range(0,len(matches),4):
-        for col,p in zip(st.columns(4),matches[row:row+4]):
-            with col:
+    for row in range(0, len(matches), 4):
+        chunk = matches[row:row+4]
+        cols = st.columns(4)
+        for i, p in enumerate(chunk):
+            with cols[i]:
                 price = vendor_price(p, v)
                 stock = st.session_state.inventory.get(p["name"], {"price": p["price"], "stock": p["stock"]})["stock"]
                 img_url = p.get("image", "https://images.unsplash.com/photo-1610348725531-843dff163e2c?w=400&auto=format&fit=crop&q=60")
                 st.markdown(f"""
-                <div class="product-card" style="padding: 10px; min-height: 250px; margin-bottom: 12px;">
-                    <img src="{img_url}" style="width: 100%; height: 110px; object-fit: cover; border-radius: 12px; margin-bottom: 8px;">
+                <div class="product-card" style="padding: 12px; max-width: 280px; margin: 0 auto 12px auto; min-height: 250px;">
+                    <div style="width: 100%; aspect-ratio: 4/3; overflow: hidden; border-radius: 12px; margin-bottom: 8px;">
+                        <img src="{img_url}" style="width: 100%; height: 100%; object-fit: cover;">
+                    </div>
                     <b>{p['emoji']} {p['name']}</b>
                     <div class="muted">{p['unit']} · {v['name']}</div>
                     <div class="price">{inr(price)}</div>
                     <span class="muted">{"Only a few left" if stock<10 else "In stock today"}</span>
                 </div>
                 """, unsafe_allow_html=True)
-                st.link_button("Ask on WhatsApp",whatsapp_url(v,p,price),use_container_width=True)
-                if st.button("Add to basket",key="add"+v["id"]+p["name"],use_container_width=True): add_item(p);st.toast(f"Added from {v['name']} ✨")
+                st.link_button("Ask on WhatsApp", whatsapp_url(v, p, price), use_container_width=True)
+                if st.button("Add to basket", key="add"+v["id"]+p["name"], use_container_width=True): add_item(p); st.toast(f"Added from {v['name']} ✨")
 
 elif nav == "My cart":
     st.title("Your vibrant basket 🧺")
