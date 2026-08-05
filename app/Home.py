@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import json
 from urllib.parse import quote, unquote
@@ -88,7 +89,7 @@ def set_vendor_cookie(account):
     payload = json.dumps(account, separators=(",", ":"))
     encoded_payload = base64.b64encode(payload.encode("utf-8")).decode("ascii")
     cookie_name = json.dumps(VENDOR_COOKIE_NAME)
-    st.iframe(
+    components.html(
         f"""
         <script>
         const encodedPayload = "{encoded_payload}";
@@ -195,10 +196,10 @@ if "vendor_photos" not in st.session_state:
     st.session_state.vendor_photos = {}
 
 def vendor_price(product, vendor):
-    base = st.session_state.inventory.get(product["name"], {"price": product["price"]})["price"] if vendor["id"] == "meera" else product["price"]
+    base = st.session_state.inventory.get(product["name"], {"price": product["price"]})["price"]
     zone = st.session_state.get("selected_location", vendor.get("home_zone", ""))
     zone_delta = vendor.get("zone_deltas", {}).get(zone, 5)
-    return max(1, base + vendor["delta"] + zone_delta)
+    return max(1, base + vendor.get("delta", 0) + zone_delta)
 
 def vendor_delivery_time(vendor):
     zone = st.session_state.get("selected_location", vendor.get("home_zone", ""))
@@ -1135,7 +1136,8 @@ if nav == "Discover":
     for row in range(0,len(matches),4):
         for col,p in zip(st.columns(4),matches[row:row+4]):
             with col:
-                price=vendor_price(p,v); stock=st.session_state.inventory.get(p["name"], {"price": p["price"], "stock": p["stock"]})["stock"] if v["id"]=="meera" else p["stock"]
+                price = vendor_price(p, v)
+                stock = st.session_state.inventory.get(p["name"], {"price": p["price"], "stock": p["stock"]})["stock"]
                 img_url = p.get("image", "https://images.unsplash.com/photo-1610348725531-843dff163e2c?w=400&auto=format&fit=crop&q=60")
                 st.markdown(f"""
                 <div class="product-card" style="padding: 10px; min-height: 250px; margin-bottom: 12px;">
