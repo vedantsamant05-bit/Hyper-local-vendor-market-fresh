@@ -244,6 +244,8 @@ def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment,
     if not maps_link and delivery_address:
         maps_link = f"https://maps.google.com/?q={quote(delivery_address)}"
     
+    payment_status = "Paid / Successful (Online UPI)" if str(payment).upper() == "UPI" else "Pending (Cash on Delivery)"
+    
     lines = [
         f"🛒 *FreshKart Local - New Order Alert (#{order_id})*",
         f"📍 *Stall:* {stall_name} (Owner: {owner_name})",
@@ -259,6 +261,7 @@ def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment,
         "",
         f"⏰ *Preferred Time Slot:* {slot}",
         f"💳 *Payment Method:* {payment}",
+        f"📌 *Payment Status:* {payment_status}",
         "",
         "🥬 *Ordered Items List & Quantities:*",
     ])
@@ -280,6 +283,7 @@ def vendor_order_whatsapp_url(vendor, order_id, items_for_vendor, slot, payment,
     
     msg_text = "\n".join(lines)
     return f"https://wa.me/{phone}?text={quote(msg_text)}", msg_text
+
 
 def customer_status_whatsapp_url(customer_phone, status, order_id, stall_name, delivery_mode="Self Delivery", eta="15-20 mins"):
     phone = normalize_whatsapp(customer_phone)
@@ -332,9 +336,14 @@ def cart_total():
     return sum(v["price"] * v["qty"] for v in cart_items())
 def cart_items():
     output=[]
-    for key, qty in st.session_state.cart.items():
-        vendor_id, name = key.split("::", 1); p=next(x for x in st.session_state.products if x["name"] == name); v=next(x for x in st.session_state.vendors if x["id"] == vendor_id)
-        output.append({"key":key,"qty":qty,"product":p,"vendor":v,"price":vendor_price(p,v)})
+    for key, qty in list(st.session_state.cart.items()):
+        if "::" not in key:
+            continue
+        vendor_id, name = key.split("::", 1)
+        p = next((x for x in st.session_state.products if x["name"] == name), None)
+        v = next((x for x in st.session_state.vendors if x["id"] == vendor_id), None)
+        if p and v:
+            output.append({"key":key,"qty":qty,"product":p,"vendor":v,"price":vendor_price(p,v)})
     return output
 
 st.sidebar.markdown("## 🥕 FreshKart")
